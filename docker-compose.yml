@@ -1,0 +1,105 @@
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2019-CU16-ubuntu-20.04
+    container_name: mssql
+    environment:
+      SA_PASSWORD: "VanKit12345@"
+      ACCEPT_EULA: "Y"
+    ports:
+      - "1433:1433"
+    volumes:
+      - mssql_data:/var/opt/mssql
+      - ./sqlserver-init:/docker-entrypoint-initdb.d
+    command: >
+      bash -c "
+        /opt/mssql/bin/sqlservr &
+        sleep 60 &&
+        /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'VanKit12345@' -i /docker-entrypoint-initdb.d/init.sql &&
+        wait
+      "
+    healthcheck:
+      test: ["CMD", "bash", "-c", "pgrep sqlservr > /dev/null"]
+      interval: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - microservices_network
+
+  account-service:
+    build:
+      context: ./MSAccount_SE182744
+      dockerfile: Dockerfile
+    container_name: account_service
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:sqlserver://mssql:1433;encrypt=true;trustServerCertificate=true;databaseName=MSS301Summer25DBAccount
+      SPRING_DATASOURCE_USERNAME: sa
+      SPRING_DATASOURCE_PASSWORD: VanKit12345@
+    depends_on:
+      mssql:
+        condition: service_healthy
+    networks:
+      - microservices_network
+
+  blindbox-service:
+    build:
+      context: ./MSBlindBox_SE182744
+      dockerfile: Dockerfile
+    container_name: blindbox_service
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:sqlserver://mssql:1433;encrypt=true;trustServerCertificate=true;databaseName=MSS301Summer25DBBlindBoxes
+      SPRING_DATASOURCE_USERNAME: sa
+      SPRING_DATASOURCE_PASSWORD: VanKit12345@
+      APP_BRAND_SERVICE_PATH: http://brand-service:8083
+    depends_on:
+      mssql:
+        condition: service_healthy
+    networks:
+      - microservices_network
+
+  # 🏷️ Brand Service
+  brand-service:
+    build:
+      context: ./MSBrand_SE182744
+      dockerfile: Dockerfile
+    container_name: brand_service
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:sqlserver://mssql:1433;encrypt=true;trustServerCertificate=true;databaseName=MSS301Summer25DBBrand
+      SPRING_DATASOURCE_USERNAME: sa
+      SPRING_DATASOURCE_PASSWORD: VanKit12345@
+    depends_on:
+      mssql:
+        condition: service_healthy
+    networks:
+      - microservices_network
+
+  apigateway:
+    build:
+      context: ./APIGateway_SE182744
+      dockerfile: Dockerfile
+    container_name: apigateway_service
+    ports:
+      - "9090:9090"
+    depends_on:
+      - account-service
+      - blindbox-service
+      - brand-service
+    environment:
+      ACCOUNT_SERVICE_URL: http://account-service:8081
+      BLINDBOX_SERVICE_URL: http://blindbox-service:8082
+      BRAND_SERVICE_URL: http://brand-service:8083
+    networks:
+      - microservices_network
+
+networks:
+  microservices_network:
+    driver: bridge
+
+
+volumes:
+  mssql_data:
